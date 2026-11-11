@@ -14,19 +14,15 @@
       this.rule = rule;
       this.f = rule.f;
       this.kind = 'hash';
-      this.cap = Math.max(1 << 16, maxNodes | 0);
-      const cap = this.cap;
-      // Typed arrays are zero-filled lazily by the OS, so reserving the full budget is cheap.
-      // One 32-byte record per node, so a lookup touches a single cache line. A node id is the
-      // offset of its record: [nw, ne, sw, se, result (0 = not computed), hash chain, level,
-      // representative non-zero state (0 = empty node)].
-      this.D = new Int32Array(cap * 8);
-      this.end = cap * 8;
-      this.POP = new Float64Array(cap); // population + 1 (0 = unknown), indexed by id >> 3
-      let hs = 1; while (hs < cap) hs <<= 1;
-      this.hmask = hs - 1;
-      this.HEAD = new Int32Array(hs);
-      this.count = 8; // id 0 is the null node
+      // Nodes live directly in an open-addressed hash table (linear probing), so finding one
+      // costs a single cache miss instead of one for a bucket array and another for the record.
+      // One 32-byte record per slot; a node id is the offset of its record:
+      //   [nw, ne, sw, se, result (0 = not computed), unused, level (0 = free slot),
+      //    representative non-zero state (0 = empty node)]
+      // The universe is rebuilt into a fresh table when this one is 70% full.
+      let S = 1 << 16; while (S * 2 <= maxNodes) S *= 2;
+      this.S = S; this.mask = S * 8 - 8; this.limit = Math.floor(S * 0.7);
+      this._alloc();
       this.empties = [0];
       this.P = 0;     // each step advances 2^P generations
       this.gen = 0n;
@@ -34,24 +30,32 @@
       this.gcCount = 0;
     }
 
+    _alloc() {
+      this.D = new Int32Array(this.S * 8);
+      this.POP = new Float64Array(this.S); // population + 1 (0 = unknown), indexed by id >> 3
+      this.D[6] = 255;                     // slot 0 is reserved: id 0 means "none"
+      this.count = 1;
+      this.empties = [0];
+    }
+
     // ------------------------------------------------------------ node store
     node(nw, ne, sw, se, lv) {
       const D = this.D;
       let h = (Math.imul(nw, 0x9E3779B1) ^ Math.imul(ne, 0x85EBCA6B) ^ Math.imul(sw, 0xC2B2AE35) ^ Math.imul(se, 0x27D4EB2F)) + lv;
       h ^= h >>> 15; h = Math.imul(h, 0x2C1B3C6D); h ^= h >>> 13;
-      h &= this.hmask;
-      
-      for (let i = this.HEAD[h]; i !== 0; i = D[i + 5]) {
-        if (D[i] === nw && D[i + 1] === ne && D[i + 2] === sw && D[i + 3] === se && D[i + 6] === lv) return i;
+      const mask = this.mask;
+      let i = (h << 3) & mask;
+      for (; ;) {
+        const l = D[i + 6];
+        if (l === 0) break;
+        if (l === lv && D[i] === nw && D[i + 1] === ne && D[i + 2] === sw && D[i + 3] === se) return i;
+        i = (i + 8) & mask;
       }
-      const i = this.count;
-      if (i >= this.end) throw OOM;
-      this.count = i + 8;
+      if (this.count >= this.limit) throw OOM;
+      this.count++;
       D[i] = nw; D[i + 1] = ne; D[i + 2] = sw; D[i + 3] = se; D[i + 6] = lv;
-      D[i + 4] = 0; this.POP[i >> 3] = 0;
       if (lv === 1) D[i + 7] = nw || ne || sw || se;
       else { D[i + 7] = (lv & 1) ? (D[nw + 7] || D[se + 7] || D[ne + 7] || D[sw + 7]) : (D[se + 7] || D[sw + 7] || D[nw + 7] || D[ne + 7]); }
-      D[i + 5] = this.HEAD[h]; this.HEAD[h] = i;
       return i;
     }
 
@@ -160,7 +164,7 @@
       P = Math.max(0, Math.min(1000, P | 0));
       if (P === this.P) return;
       this.P = P;
-      const D = this.D; for (let i = 12, e = this.count; i < e; i += 8) D[i] = 0;
+      if (this.count > 1) this.gc(); // results cached for the old step size are no longer valid
     }
 
     _step1() {
@@ -190,40 +194,22 @@
       }
     }
 
-    // Mark from the root, compact in place (children always have smaller ids), rebuild the hash.
+    // Copy everything reachable from the root into a fresh table. Cached results are dropped.
     gc() {
-      const D = this.D;
-      const n = this.count, mark = new Uint8Array(n >> 3), remap = new Int32Array(n >> 3);
-      
-      const stack = [this.root];
-      mark[this.root >> 3] = 1;
-      while (stack.length) {
-        const i = stack.pop();
-        if (D[i + 6] > 1) {
-          const a = D[i], b = D[i + 1], c = D[i + 2], d = D[i + 3];
-          if (!mark[a >> 3]) { mark[a >> 3] = 1; stack.push(a); }
-          if (!mark[b >> 3]) { mark[b >> 3] = 1; stack.push(b); }
-          if (!mark[c >> 3]) { mark[c >> 3] = 1; stack.push(c); }
-          if (!mark[d >> 3]) { mark[d >> 3] = 1; stack.push(d); }
-        }
-      }
-      this.HEAD.fill(0);
-      let j = 8;
-      for (let i = 8; i < n; i += 8) {
-        if (!mark[i >> 3]) continue;
-        const lv = D[i + 6];
-        let a = D[i], b = D[i + 1], c = D[i + 2], d = D[i + 3];
-        if (lv > 1) { a = remap[a >> 3]; b = remap[b >> 3]; c = remap[c >> 3]; d = remap[d >> 3]; }
-        D[j] = a; D[j + 1] = b; D[j + 2] = c; D[j + 3] = d; D[j + 6] = lv;
-        D[j + 7] = D[i + 7]; this.POP[j >> 3] = this.POP[i >> 3]; D[j + 4] = 0;
-        let h = (Math.imul(a, 0x9E3779B1) ^ Math.imul(b, 0x85EBCA6B) ^ Math.imul(c, 0xC2B2AE35) ^ Math.imul(d, 0x27D4EB2F)) + lv;
-        h ^= h >>> 15; h = Math.imul(h, 0x2C1B3C6D); h ^= h >>> 13; h &= this.hmask;
-        D[j + 5] = this.HEAD[h]; this.HEAD[h] = j;
-        remap[i >> 3] = j; j += 8;
-      }
-      this.count = j;
-      this.root = remap[this.root >> 3];
-      this.empties = [0];
+      const oD = this.D, oP = this.POP;
+      this._alloc();
+      const copy = (n) => {
+        const r = oD[n + 4];
+        if (r < 0) return -r - 1; // already moved
+        let a = oD[n], b = oD[n + 1], c = oD[n + 2], d = oD[n + 3];
+        const lv = oD[n + 6];
+        if (lv > 1) { a = copy(a); b = copy(b); c = copy(c); d = copy(d); }
+        const id = this.node(a, b, c, d, lv);
+        this.POP[id >> 3] = oP[n >> 3];
+        oD[n + 4] = -id - 1;
+        return id;
+      };
+      this.root = copy(this.root);
       this.gcCount++;
     }
 
@@ -269,8 +255,8 @@
     }
 
     setCell(x, y, s) {
-      const D = this.D;
       this._guard(() => {
+        const D = this.D; // fetched here: a retry after gc() sees the new table
         let r = this.root;
         for (; ;) {
           const h = POW2[D[r + 6] - 1];
@@ -284,7 +270,7 @@
     }
 
     clear() {
-      this.HEAD.fill(0); this.count = 8; this.empties = [0];
+      this._alloc();
       this.root = this.empty(3); this.gen = 0n;
     }
 
@@ -354,8 +340,8 @@
     // Fill buf (2 bytes per texel: state, brightness). Texel (i,j) covers the 2^k square of
     // cells whose top-left is (x0 + i*2^k, y0 + j*2^k); x0,y0 must be multiples of 2^k.
     render(x0, y0, k, tw, th, buf) {
-      const D = this.D;
       return this._guard(() => {
+        const D = this.D;
         let r = this.root;
         while (D[r + 6] <= k) r = this.expand(r);
         
@@ -399,7 +385,6 @@
     // Golly .mc text. Two-state files use 8x8 leaf lines of . * $; multi-state files use
     // "1 a b c d" leaves. Returns { rule, gen }.
     loadMacrocell(text) {
-      const D = this.D;
       const lines = text.split(/\r?\n/);
       let rule = null, gen = 0n;
       const ids = [0], lvs = [0];
@@ -434,13 +419,14 @@
       }
       if (ids.length < 2) throw new Error('No nodes found in macrocell file');
       let r = ids[ids.length - 1];
+      const D = this.D;
       while (D[r + 6] < 3) r = this.expand(r);
       this.root = r;
       this.gen = gen;
       return { rule, gen };
     }
 
-    stats() { return { nodes: this.count >> 3, cap: this.cap, level: this.D[this.root + 6], gcs: this.gcCount }; }
+    stats() { return { nodes: this.count, limit: this.limit, bytes: this.S * 40, level: this.D[this.root + 6], gcs: this.gcCount }; }
   }
 
   CA.HashLife = HashLife;

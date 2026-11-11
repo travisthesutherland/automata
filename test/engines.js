@@ -29,7 +29,7 @@ const GUN = '24bo11b$22bobo11b$12b2o6b2o12b2o$11bo3bo4b2o12b2o$2o8bo5bo3b2o14b$2
   ok(a.gen === 1024n && b.gen === 1024n && cellsOf(a) === cellsOf(b), 'Gosper gun: one 2^10 jump == 128 x 2^3 steps (pop ' + a.population + ')');
   a.setStep(30); const t = Date.now(); a.step(); a.step();
   // gun emits one glider (5 cells) every 30 gens: population grows linearly
-  ok(a.population > 3.5e8 && a.population < 3.7e8, 'Gosper gun after ~2^31 gens: pop ' + a.population + ' in ' + (Date.now() - t) + ' ms, nodes ' + (a.count >> 3));
+  ok(a.population > 3.5e8 && a.population < 3.7e8, 'Gosper gun after ~2^31 gens: pop ' + a.population + ' in ' + (Date.now() - t) + ' ms, nodes ' + a.count);
   const bb = a.bounds(); ok(bb && bb.x1 - bb.x0 > 5e8, 'bounds span ' + (bb.x1 - bb.x0));
 }
 // 3. GC under a tiny memory budget still gives the right answer

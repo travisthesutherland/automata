@@ -70,7 +70,7 @@ function loadPattern(m) {
     info.comments = head.comments;
     if (m.adoptRule && head.rule) {
       const sp = ruleFromFile(head.rule);
-      if (sp) { spec = sp; rule = CA.compileRule(sp); if (!rule.needsFinite) cfg.kind = m.engineKind || 'hash'; makeEngine(false); }
+      if (sp) { spec = sp; rule = CA.compileRule(sp); if (!rule.needsFinite && cfg.kind === 'dense') cfg.kind = 'hash'; makeEngine(false); }
       else info.unknownRule = head.rule;
     }
     if (m.clear) engine.clear();
@@ -85,7 +85,8 @@ function loadPattern(m) {
     for (let i = 0; i < c.length; i += 3) engine.setCell(c[i], c[i + 1], c[i + 2]);
   } else if (m.clear) engine.clear();
   if (m.random) randomFill(m.random);
-  engine.gen = 0n; rateT = 0; gps = 0;
+  if (m.mc == null) engine.gen = 0n;
+  rateT = 0; gps = 0;
   dirty = true;
   info.type = 'loaded'; info.bounds = engine.bounds(); info.fit = m.fit === 'dense' ? engine.kind === 'dense' : m.fit !== false;
   if (engine.kind === 'dense') info.grid = { w: engine.w, h: engine.h };

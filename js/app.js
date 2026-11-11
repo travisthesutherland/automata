@@ -28,7 +28,7 @@
   };
   let viewDirty = true, activeUntil = 0, pendingExport = null;
   const wake = () => { activeUntil = performance.now() + 4000; };
-  const nodesFor = mb => Math.floor(mb * 1e6 / 42);
+  const nodesFor = mb => Math.floor(mb * 1e6 / 40); // 40 bytes per table slot; the engine rounds down to a power of two
 
   // ------------------------------------------------------------- formatting
   const fmtBig = s => s.length <= 15 ? Number(s).toLocaleString('en-US') : s[0] + '.' + s.slice(1, 4) + 'e' + (s.length - 1);
@@ -196,7 +196,7 @@
         $('hGps').textContent = m.playing ? (m.gps ? fmtRate(m.gps) + ' gen/s' : 'running') + (m.stepMs > 80 ? ' · ' + Math.round(m.stepMs) + ' ms/step' : '') : 'paused';
         if (m.stats.nodes != null) {
           $('hEng').textContent = 'HashLife · depth ' + m.stats.level;
-          $('hMem').textContent = (m.stats.nodes * 42 / 1e6).toFixed(1) + ' / ' + S.memMB + ' MB' + (m.stats.gcs ? ' · ' + m.stats.gcs + ' gc' : '');
+          $('hMem').textContent = (m.stats.nodes / m.stats.limit * m.stats.bytes / 1e6).toFixed(0) + ' / ' + (m.stats.bytes / 1e6).toFixed(0) + ' MB' + (m.stats.gcs ? ' · ' + m.stats.gcs + ' gc' : '');
         } else {
           $('hEng').textContent = 'Torus ' + m.stats.w + ' × ' + m.stats.h;
           $('hMem').textContent = (m.stats.w * m.stats.h * 2 / 1e6).toFixed(1) + ' MB';

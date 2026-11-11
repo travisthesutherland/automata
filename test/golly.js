@@ -17,7 +17,7 @@ for (const [f, P, steps] of [['Langtons-Loops.rle', 0, 151 * 4], ['Byl-Loop.rle'
   catch (e) { console.log(f, 'ERROR', e.message || e); }
 }
 for (const [f, P, steps] of [['counter-demo.rle', 0, 300], ['cell-coders-demo.rle', 0, 5], ['golly-constructor.rle', 6, 300], ['small-JvN-self-replicator.rle', 12, 220]]) {
-  try { const { h, head } = loadRLE(f); const p0 = h.population, b0 = h.bounds(); const ms = run(h, P, steps); const b = h.bounds(); console.log(f.padEnd(30), head.rule.padEnd(9), 'pop', p0, '->', h.population, 'gen', h.gen, '| size', (b0.x1 - b0.x0 + 1) + 'x' + (b0.y1 - b0.y0 + 1), '->', (b.x1 - b.x0 + 1) + 'x' + (b.y1 - b.y0 + 1), '|', ms, 'ms, nodes', (h.count >> 3), 'gc', h.gcCount, 'P', h.P); }
+  try { const { h, head } = loadRLE(f); const p0 = h.population, b0 = h.bounds(); const ms = run(h, P, steps); const b = h.bounds(); console.log(f.padEnd(30), head.rule.padEnd(9), 'pop', p0, '->', h.population, 'gen', h.gen, '| size', (b0.x1 - b0.x0 + 1) + 'x' + (b0.y1 - b0.y0 + 1), '->', (b.x1 - b.x0 + 1) + 'x' + (b.y1 - b.y0 + 1), '|', ms, 'ms, nodes', h.count, 'gc', h.gcCount, 'P', h.P); }
   catch (e) { console.log(f, 'ERROR', e.message || JSON.stringify(e)); }
 }
 // WireWorld (MCell files and the primes computer) and the big macrocell machines
@@ -31,6 +31,6 @@ for (const f of ['wireworld/clocks.mcl', 'wireworld/NickGardner.mcl']) {
 for (const [f, rule, P, steps, nodes] of [['wireworld/primes.mc', 'WireWorld', 8, 40, 4 << 20], ['sphinx.mc.gz', 'JvN29', 16, 8, 6 << 20], ['Goucher-replicator.mc.gz', 'Codd', 16, 4, 6 << 20]]) {
   const h = new CA.HashLife(CA.compileRule(rule), nodes);
   const t0 = Date.now(); const info = h.loadMacrocell(read(f)); const b0 = h.bounds();
-  console.log(f.padEnd(28), 'rule', info.rule, 'pop', h.population, 'size', (b0.x1 - b0.x0 + 1) + 'x' + (b0.y1 - b0.y0 + 1), 'nodes', h.count >> 3, 'load', Date.now() - t0, 'ms');
-  const ms = run(h, P, steps); console.log('   after', String(h.gen), 'gens: pop', h.population, ms, 'ms, nodes', h.count >> 3, 'gc', h.gcCount, 'P', h.P);
+  console.log(f.padEnd(28), 'rule', info.rule, 'pop', h.population, 'size', (b0.x1 - b0.x0 + 1) + 'x' + (b0.y1 - b0.y0 + 1), 'nodes', h.count, 'load', Date.now() - t0, 'ms');
+  const ms = run(h, P, steps); console.log('   after', String(h.gen), 'gens: pop', h.population, ms, 'ms, nodes', h.count, 'gc', h.gcCount, 'P', h.P);
 }
